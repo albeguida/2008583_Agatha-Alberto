@@ -107,7 +107,7 @@ def list_rules():
 
 
 @app.post("/rules", status_code=201)
-def create_rule(body: RuleCreate):
+async def create_rule(body: RuleCreate):
     if body.operator not in OPERATORS:
         raise HTTPException(400, f"Invalid operator '{body.operator}'. Use one of {list(OPERATORS)}")
     if body.action not in ("ON", "OFF"):
@@ -135,7 +135,33 @@ def create_rule(body: RuleCreate):
             "created_at": rule.created_at,
         }
     _load_rules_cache()
+    # Immediately evaluate the new rule against the current cached sensor value
+    await _fire_rule_if_matched(result)
     return result
+
+
+async def _fire_rule_if_matched(rule: dict):
+    """Check the current Redis sensor cache and fire the actuator if the rule matches."""
+    try:
+        redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        raw = await redis.get(f"sensor:{rule['sensor_id']}")
+        await redis.aclose()
+        if not raw:
+            return
+        event = json.loads(raw)
+        value = event.get("value")
+        if value is None:
+            return
+        compare = OPERATORS.get(rule["operator"])
+        if compare and compare(value, rule["threshold"]):
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{SIMULATOR_URL}/actuators/{rule['actuator_id']}",
+                    json={"state": rule["action"]},
+                )
+            print(f"[rules-engine] Rule #{rule['id']} immediately fired: {rule['actuator_id']} → {rule['action']}")
+    except Exception as exc:
+        print(f"[rules-engine] Immediate rule evaluation failed: {exc}")
 
 
 @app.delete("/rules/{rule_id}", status_code=204)
@@ -152,18 +178,25 @@ def delete_rule(rule_id: int):
 # ── Subscriber loop ───────────────────────────────────────────────────────────
 
 async def subscriber_loop():
-    redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        pubsub = redis.pubsub()
-        await pubsub.subscribe("mars.sensors")
-        async for message in pubsub.listen():
-            if message["type"] != "message":
-                continue
-            try:
-                event = json.loads(message["data"])
-                await evaluate_rules(event, client)
-            except Exception as exc:
-                print(f"[rules-engine] Error processing event: {exc}")
+    """Subscribe to mars.sensors and evaluate rules. Retries on any failure."""
+    while True:
+        try:
+            redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                pubsub = redis.pubsub()
+                await pubsub.subscribe("mars.sensors")
+                print("[rules-engine] Subscribed to mars.sensors")
+                async for message in pubsub.listen():
+                    if message["type"] != "message":
+                        continue
+                    try:
+                        event = json.loads(message["data"])
+                        await evaluate_rules(event, client)
+                    except Exception as exc:
+                        print(f"[rules-engine] Error processing event: {exc}")
+        except Exception as exc:
+            print(f"[rules-engine] Subscriber loop crashed: {exc}. Retrying in 5s...")
+            await asyncio.sleep(5)
 
 
 async def evaluate_rules(event: dict, client: httpx.AsyncClient):

@@ -1,0 +1,123 @@
+version: "3.9"
+
+services:
+  # ─── SIMULATOR (IMMUTABLE – do not modify) ───────────────────────────────────
+  simulator:
+    image: mars-iot-simulator:latest
+    container_name: mars_simulator
+    ports:
+      - "8080:8080"
+    networks:
+      - mars_net
+    restart: unless-stopped
+    # No healthcheck: simulator is immutable and may not have wget/curl available.
+
+  # ─── MESSAGE BROKER ──────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: mars_redis
+    networks:
+      - mars_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── INGESTION SERVICE ───────────────────────────────────────────────────────
+  ingestion:
+    build:
+      context: ./source/ingestion
+      dockerfile: Dockerfile
+    container_name: mars_ingestion
+    environment:
+      SIMULATOR_URL: "http://simulator:8080/api"
+      REDIS_URL: "redis://redis:6379"
+      POLL_INTERVAL_SECONDS: "5"
+    depends_on:
+      simulator:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - mars_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─── RULES ENGINE SERVICE ─────────────────────────────────────────────────────
+  rules-engine:
+    build:
+      context: ./source/rules-engine
+      dockerfile: Dockerfile
+    container_name: mars_rules_engine
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      SIMULATOR_URL: "http://simulator:8080/api"
+      DATABASE_URL: "sqlite:////data/rules.db"
+    volumes:
+      - rules_db:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - mars_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─── API GATEWAY (BFF – Backend for Frontend) ─────────────────────────────────
+  api-gateway:
+    build:
+      context: ./source/api-gateway
+      dockerfile: Dockerfile
+    container_name: mars_api_gateway
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      RULES_ENGINE_URL: "http://rules-engine:8001"
+      SIMULATOR_URL: "http://simulator:8080/api"
+      HEALTH_STALE_THRESHOLD_SECONDS: "15"
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rules-engine:
+        condition: service_healthy
+    networks:
+      - mars_net
+    restart: unless-stopped
+
+  # ─── FRONTEND ─────────────────────────────────────────────────────────────────
+  # VITE_API_URL must be a build arg – Vite bakes env vars into the JS bundle at
+  # build time, so a runtime `environment:` entry has no effect.
+  frontend:
+    build:
+      context: ./source/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: "http://localhost:8000"
+    container_name: mars_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - mars_net
+    restart: unless-stopped
+
+volumes:
+  rules_db:
+
+networks:
+  mars_net:
+    driver: bridge

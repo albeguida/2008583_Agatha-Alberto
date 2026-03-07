@@ -12,6 +12,7 @@ API Gateway (BFF – Backend for Frontend)
 - GET  /health           → ingestion connectivity status (US10)
 """
 import asyncio
+import contextlib
 import json
 import os
 from datetime import datetime, timezone
@@ -99,20 +100,40 @@ async def ws_sensors(websocket: WebSocket):
 
 
 async def redis_broadcast_loop():
-    redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-    pubsub = redis.pubsub()
-    await pubsub.subscribe("mars.sensors")
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
-        data = message["data"]
-        dead = set()
-        for ws in list(_ws_clients):
-            try:
-                await ws.send_text(data)
-            except Exception:
-                dead.add(ws)
-        _ws_clients.difference_update(dead)
+    while True:
+        redis_client = None
+        pubsub = None
+        try:
+            redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+            pubsub = redis_client.pubsub()
+            await pubsub.subscribe("mars.sensors")
+            while True:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=1.0
+                )
+                if message and message["type"] == "message":
+                    data = message["data"]
+                    dead = set()
+                    for ws in list(_ws_clients):
+                        try:
+                            await ws.send_text(data)
+                        except Exception:
+                            dead.add(ws)
+                    _ws_clients.difference_update(dead)
+                await asyncio.sleep(0.01)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            print(f"[api-gateway] Broadcast loop crashed: {exc}. Retrying in 5s...")
+            await asyncio.sleep(5)
+        finally:
+            if pubsub:
+                with contextlib.suppress(Exception):
+                    await pubsub.unsubscribe("mars.sensors")
+                    await pubsub.reset()
+            if redis_client:
+                with contextlib.suppress(Exception):
+                    await redis_client.aclose()
 
 
 # ── Actuators ─────────────────────────────────────────────────────────────────

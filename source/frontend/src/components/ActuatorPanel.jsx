@@ -48,9 +48,9 @@ export default function ActuatorPanel({ apiBase }) {
   };
 
   return (
-    <section style={{ marginTop: 24 }}>
-      <h2>Actuators</h2>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+    <section style={{ marginTop: 32 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 600, color: "#fff", marginBottom: 16 }}>Actuators</h2>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
         {ACTUATORS.map((name) => {
           const state = states[name] ?? "—";
           const isOn = state === "ON";
@@ -58,29 +58,33 @@ export default function ActuatorPanel({ apiBase }) {
             <div
               key={name}
               style={{
-                border: `2px solid ${isOn ? "#22c55e" : "#d1d5db"}`,
-                borderRadius: 8,
-                padding: 12,
-                minWidth: 180,
-                background: isOn ? "#f0fdf4" : "#f9fafb",
+                border: `1px solid ${isOn ? "#166534" : "#2a2a2a"}`,
+                borderRadius: 10,
+                padding: 16,
+                minWidth: 200,
+                background: isOn ? "rgba(22, 101, 52, 0.15)" : "#1a1a1a",
+                transition: "all 0.15s",
               }}
             >
-              <div style={{ fontWeight: "bold", marginBottom: 8 }}>{LABELS[name]}</div>
-              <div style={{ marginBottom: 8, color: isOn ? "#16a34a" : "#6b7280" }}>
-                State: <strong>{state}</strong>
+              <div style={{ fontWeight: 500, marginBottom: 10, color: "#e5e5e5", fontSize: 14 }}>{LABELS[name]}</div>
+              <div style={{ marginBottom: 12, color: isOn ? "#4ade80" : "#737373", fontSize: 13 }}>
+                State: <strong style={{ color: isOn ? "#22c55e" : "#a3a3a3" }}>{state}</strong>
               </div>
               <button
                 onClick={() => toggle(name)}
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 4,
-                  padding: "4px 12px",
-                  background: isOn ? "#ef4444" : "#22c55e",
+                  gap: 6,
+                  padding: "6px 14px",
+                  background: isOn ? "#b91c1c" : "#15803d",
                   color: "white",
                   border: "none",
-                  borderRadius: 4,
+                  borderRadius: 6,
                   cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  transition: "background 0.15s",
                 }}
               >
                 <Power size={14} /> Turn {isOn ? "OFF" : "ON"}

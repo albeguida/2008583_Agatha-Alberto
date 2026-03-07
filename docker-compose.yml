@@ -3,7 +3,7 @@ version: "3.9"
 services:
   # ─── SIMULATOR (IMMUTABLE – do not modify) ───────────────────────────────────
   simulator:
-    image: mars-iot-simulator:latest
+    image: mars-iot-simulator:multiarch_v1
     container_name: mars_simulator
     ports:
       - "8080:8080"

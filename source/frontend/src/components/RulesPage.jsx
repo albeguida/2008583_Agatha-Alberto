@@ -147,4 +147,4 @@ export default function RulesPage({ apiBase }) {
 
 const th = { textAlign: "left", padding: "8px 12px", fontSize: 13 };
 const td = { padding: "8px 12px", fontSize: 13 };
-const sel = { display: "block", marginTop: 2, padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db" };
+const sel = { display: "block", marginTop: 2, padding: "4px 6px", borderRadius: 4, border: "1px solid #4b5563", background: "#1f2937", color: "#f9fafb" };
